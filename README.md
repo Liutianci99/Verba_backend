@@ -19,6 +19,15 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 | POST | `/distractors` | body `{word, meaning}`,返回 3 个易混淆中文释义 |
 | GET | `/audio/:word?type=2` | 美音音频流(type=1 英音、2 美音) |
 
+## 进度
+
+- [x] Fastify + better-sqlite3 + TypeScript 工程脚手架
+- [x] 接口:`/dict` `/distractors` `/audio` + Bearer 鉴权 + `/health`
+- [x] Docker 多阶段构建,构建时内嵌 ECDICT 77 万词
+- [x] CI/CD:服务器侧构建方案(GitHub Actions SSH 部署)
+- [ ] 首次部署上线(服务器构建中)
+- [ ] 三接口联调验证
+
 ## 本地运行
 
 ```bash
