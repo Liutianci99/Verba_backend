@@ -41,17 +41,17 @@ docker run --rm -p 3000:3000 --env-file .env verba-backend:dev
 
 服务器 `/root/verba-backend/` 放 `docker-compose.yml` + `.env`。CI 监听 `main` push:
 
-1. 构建镜像并推送 `ccr.ccs.tencentyun.com/verba/verba:latest`(腾讯云 TCR 个人版,国内拉取快)
+1. 构建镜像并推送 `docker.io/liustewart/verba-backend:latest`(Docker Hub,服务器走腾讯云镜像加速 mirror.ccs.tencentyun.com)
 2. SSH 触发服务器 `docker compose pull && docker compose up -d`
 
 需要的 GitHub Secrets:
 
 ```
-SERVER_HOST       服务器 IP
-SERVER_USER       SSH 用户
-SERVER_SSH_KEY    私钥内容(整段 pem)
-TCR_USERNAME      腾讯云 TCR 用户名
-TCR_PASSWORD      腾讯云 TCR 登录密码
+SERVER_HOST          服务器 IP
+SERVER_USER          SSH 用户
+SERVER_SSH_KEY       私钥内容(整段 pem)
+DOCKERHUB_USERNAME   Docker Hub 用户名
+DOCKERHUB_TOKEN      Docker Hub Personal Access Token (Read/Write)
 ```
 
 ## 关联仓库
