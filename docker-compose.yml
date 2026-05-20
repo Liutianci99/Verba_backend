@@ -1,6 +1,7 @@
 services:
   verba-backend:
-    image: docker.io/liustewart/verba-backend:latest
+    build: .
+    image: verba-backend:local
     container_name: verba-backend
     restart: unless-stopped
     ports:
@@ -12,4 +13,4 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 40s

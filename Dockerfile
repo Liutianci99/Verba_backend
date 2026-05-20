@@ -8,7 +8,7 @@ RUN apt-get update \
 
 FROM base AS deps
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm install --registry=https://registry.npmmirror.com
 
 FROM base AS data
 WORKDIR /data
