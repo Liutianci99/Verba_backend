@@ -39,19 +39,22 @@ docker run --rm -p 3000:3000 --env-file .env verba-backend:dev
 
 ## 部署
 
-服务器 `/root/verba-backend/` 放 `docker-compose.yml` + `.env`。CI 监听 `main` push:
+服务器侧构建,不经镜像仓库(国内拉墙外 registry 不可靠)。
 
-1. 构建镜像并推送 `docker.io/liustewart/verba-backend:latest`(Docker Hub,服务器走腾讯云镜像加速 mirror.ccs.tencentyun.com)
-2. SSH 触发服务器 `docker compose pull && docker compose up -d`
+- 服务器 `/root/verba-backend/` 是本仓库的 git clone,`.env` 在本地手工维护(gitignore,不被覆盖)
+- GitHub Actions 监听 `main` push,SSH 进服务器执行:
+  ```
+  git fetch origin main && git reset --hard origin/main
+  docker compose up -d --build
+  ```
+- `docker compose up --build` 用层缓存,ECDICT 数据层独立 stage,增量构建快
 
 需要的 GitHub Secrets:
 
 ```
-SERVER_HOST          服务器 IP
-SERVER_USER          SSH 用户
-SERVER_SSH_KEY       私钥内容(整段 pem)
-DOCKERHUB_USERNAME   Docker Hub 用户名
-DOCKERHUB_TOKEN      Docker Hub Personal Access Token (Read/Write)
+SERVER_HOST       服务器 IP
+SERVER_USER       SSH 用户
+SERVER_SSH_KEY    私钥内容(整段 pem)
 ```
 
 ## 关联仓库
