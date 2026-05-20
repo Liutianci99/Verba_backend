@@ -1,0 +1,14 @@
+node_modules
+dist
+.env
+.git
+.github
+.gitignore
+.dockerignore
+README.md
+docs
+design
+data/*.db
+data/*.zip
+*.log
+.DS_Store

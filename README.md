@@ -4,32 +4,53 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 
 ## 技术栈
 
-- Node.js + Fastify
-- PostgreSQL — ECDICT 全量 77 万词,CSV 导入
-- DeepSeek API — 加入词本时预生成易混淆中文释义
+- Node.js 22 + Fastify 5 + TypeScript
+- better-sqlite3 + ECDICT 全量 77 万词(构建时下载,内嵌镜像)
+- DeepSeek API 预生成易混淆中文释义
 
-## 运行
+## 接口
+
+所有业务接口需 Bearer 鉴权:`Authorization: Bearer <API_KEY>`。`/health` 不需要。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查 |
+| GET | `/dict/:word` | 查词,返回 ECDICT 行 |
+| POST | `/distractors` | body `{word, meaning}`,返回 3 个易混淆中文释义 |
+| GET | `/audio/:word?type=2` | 美音音频流(type=1 英音、2 美音) |
+
+## 本地运行
 
 ```bash
-pnpm install
-pnpm dev          # 本地开发
-pnpm build        # 生产构建
-pnpm start        # 启动生产服务
+npm install
+cp .env.example .env   # 填入 API_KEY 与 DEEPSEEK_API_KEY
+# 手动下载 ECDICT sqlite,放到 data/ecdict.db
+npm run dev
 ```
 
-## 环境变量
+## Docker 构建
 
+```bash
+docker build -t verba-backend:dev .
+docker run --rm -p 3000:3000 --env-file .env verba-backend:dev
 ```
-DATABASE_URL        postgres://user:pass@host:5432/verba
-DEEPSEEK_API_KEY    DeepSeek 调用密钥
-API_KEY             单用户固定 token,客户端 Bearer 鉴权
-PORT                默认 3000
-```
+
+构建过程会从 GitHub Release 自动下载 ECDICT 数据,内嵌进镜像。
 
 ## 部署
 
-- 云服务器 + Docker 常驻
-- GitHub Actions 监听 `main` push,构建镜像推送 registry 后 SSH 触发服务器 `docker pull` + 重启
+服务器 `/root/verba-backend/` 放 `docker-compose.yml` + `.env`。CI 监听 `main` push:
+
+1. 构建镜像并推送 `ghcr.io/<owner>/verba_backend:latest`
+2. SSH 触发服务器 `docker compose pull && docker compose up -d`
+
+需要的 GitHub Secrets:
+
+```
+SERVER_HOST       服务器 IP
+SERVER_USER       SSH 用户
+SERVER_SSH_KEY    私钥内容(整段 pem)
+```
 
 ## 关联仓库
 
