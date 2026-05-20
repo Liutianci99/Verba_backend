@@ -1,6 +1,6 @@
 services:
   verba-backend:
-    image: ccr.ccs.tencentyun.com/verba/verba:latest
+    image: docker.io/liustewart/verba-backend:latest
     container_name: verba-backend
     restart: unless-stopped
     ports:
