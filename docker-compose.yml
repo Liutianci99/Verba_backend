@@ -1,10 +1,10 @@
 services:
   verba-backend:
-    image: ghcr.io/liutianci99/verba_backend:latest
+    image: ccr.ccs.tencentyun.com/verba/verba:latest
     container_name: verba-backend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "8080:3000"
     env_file:
       - .env
     healthcheck:
