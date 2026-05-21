@@ -25,8 +25,8 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 - [x] 接口:`/dict` `/distractors` `/audio` + Bearer 鉴权 + `/health`
 - [x] Docker 多阶段构建,构建时内嵌 ECDICT 77 万词
 - [x] CI/CD:GHA 构建推 GHCR + 服务器侧拉取部署
-- [ ] 首次部署上线
-- [ ] 三接口联调验证
+- [x] 首次部署上线(`121.5.23.149:8080`)
+- [x] 三接口联调验证(`/dict` `/distractors` `/audio` 全部 200)
 
 ## 本地运行
 
