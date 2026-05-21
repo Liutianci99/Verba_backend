@@ -13,4 +13,6 @@ export const config = {
   deepseekApiKey: required("DEEPSEEK_API_KEY"),
   deepseekModel: process.env.DEEPSEEK_MODEL ?? "deepseek-chat",
   ecdictPath: process.env.ECDICT_PATH ?? "./data/ecdict.db",
+  // 用户数据库:可写,与只读 ECDICT 分离。生产环境落在 docker volume 上。
+  userDbPath: process.env.USER_DB_PATH ?? "./data/verba_user.db",
 };
