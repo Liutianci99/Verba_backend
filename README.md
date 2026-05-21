@@ -24,8 +24,8 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 - [x] Fastify + better-sqlite3 + TypeScript 工程脚手架
 - [x] 接口:`/dict` `/distractors` `/audio` + Bearer 鉴权 + `/health`
 - [x] Docker 多阶段构建,构建时内嵌 ECDICT 77 万词
-- [x] CI/CD:服务器侧构建方案(GitHub Actions SSH 部署)
-- [ ] 首次部署上线(服务器构建中)
+- [x] CI/CD:GHA 构建推 GHCR + 服务器侧拉取部署
+- [ ] 首次部署上线
 - [ ] 三接口联调验证
 
 ## 本地运行
@@ -48,15 +48,14 @@ docker run --rm -p 3000:3000 --env-file .env verba-backend:dev
 
 ## 部署
 
-服务器侧构建,不经镜像仓库(国内拉墙外 registry 不可靠)。
+GitHub Actions 构建镜像推送 GHCR,服务器侧拉取运行,不再服务器本地构建。
 
-- 服务器 `/root/verba-backend/` 是本仓库的 git clone,`.env` 在本地手工维护(gitignore,不被覆盖)
-- GitHub Actions 监听 `main` push,SSH 进服务器执行:
-  ```
-  git fetch origin main && git reset --hard origin/main
-  docker compose up -d --build
-  ```
-- `docker compose up --build` 用层缓存,ECDICT 数据层独立 stage,增量构建快
+- 国内服务器经自建新加坡代理节点访问 GHCR,docker daemon 已配 `HTTP_PROXY`
+- 服务器 `/root/verba-backend/` 只需 `docker-compose.yml`(CI 自动 scp)与 `.env`(手工维护,gitignore 不被覆盖)
+- GitHub Actions 监听 `main` push:
+  - `build-push`:构建镜像并推送 `ghcr.io/liutianci99/verba-backend:latest`
+  - `deploy`:scp compose 文件到服务器,SSH 执行 `docker compose pull && up -d`
+- 构建挪到 GHA(内存充足),服务器只负责拉取,2 GB 内存机器无压力
 
 需要的 GitHub Secrets:
 
