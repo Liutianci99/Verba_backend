@@ -7,9 +7,19 @@ services:
       - "8080:3000"
     env_file:
       - .env
+    environment:
+      # 用户数据库落在持久化卷上,与镜像内只读 ECDICT 分离
+      - USER_DB_PATH=/data/verba_user.db
+      # 对齐用户时区,使词本归桶日期正确
+      - TZ=Asia/Shanghai
+    volumes:
+      - verba-userdata:/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 40s
+
+volumes:
+  verba-userdata:
