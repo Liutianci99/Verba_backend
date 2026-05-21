@@ -1,7 +1,6 @@
 services:
   verba-backend:
-    build: .
-    image: verba-backend:local
+    image: ghcr.io/liutianci99/verba-backend:latest
     container_name: verba-backend
     restart: unless-stopped
     ports:
