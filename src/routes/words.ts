@@ -1,5 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { addWord, wordsByDate, dateCounts, removeWord } from "../userdb.js";
+import {
+  addWord,
+  wordsByDate,
+  findWord,
+  dateCounts,
+  removeWord,
+} from "../userdb.js";
 
 interface WordBody {
   word?: string;
@@ -22,6 +28,24 @@ export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
 
   // 各日期词数,供日历视图
   app.get("/words/counts", async () => ({ counts: dateCounts() }));
+
+  // 按词查词本条目(错题桶抽检取词详情)
+  app.get<{ Querystring: { word?: string } }>(
+    "/words/find",
+    async (req, reply) => {
+      const word = req.query.word?.trim().toLowerCase();
+      if (!word) {
+        reply.code(400);
+        return { error: "word required" };
+      }
+      const found = findWord(word);
+      if (!found) {
+        reply.code(404);
+        return { error: "not found" };
+      }
+      return found;
+    },
+  );
 
   // 加入词本(词已存在则重新归桶到今天)
   app.post<{ Body: WordBody }>("/words", async (req, reply) => {

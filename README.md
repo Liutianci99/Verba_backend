@@ -34,6 +34,7 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 |------|------|------|
 | GET | `/words?date=YYYY-MM-DD` | 某日词本 |
 | GET | `/words/counts` | 各日期词数(日历视图) |
+| GET | `/words/find?word=` | 按词查词本条目(错题桶抽检) |
 | POST | `/words` | body `{word, phonetic?, translation?, pos?, distractors?}`,加入词本 |
 | DELETE | `/words/:id` | 软删除一个词 |
 | GET | `/errors` | 错题桶列表 |

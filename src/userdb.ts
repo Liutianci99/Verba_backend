@@ -123,6 +123,9 @@ const stmtUpsertWord = userDb.prepare(`
 const stmtGetWord = userDb.prepare(
   `SELECT * FROM user_words WHERE word = ?`,
 );
+const stmtGetActiveWord = userDb.prepare(
+  `SELECT * FROM user_words WHERE word = ? AND removed_at IS NULL`,
+);
 const stmtWordsByDate = userDb.prepare(
   `SELECT * FROM user_words
    WHERE added_date = ? AND removed_at IS NULL
@@ -155,6 +158,12 @@ export function addWord(input: WordInput) {
 
 export function wordsByDate(ymd: string) {
   return (stmtWordsByDate.all(ymd) as UserWordRow[]).map(wordJson);
+}
+
+/** 按词查未删除的词本条目,供错题桶抽检取词详情。 */
+export function findWord(word: string) {
+  const row = stmtGetActiveWord.get(word) as UserWordRow | undefined;
+  return row ? wordJson(row) : null;
 }
 
 export function dateCounts(): Record<string, number> {
