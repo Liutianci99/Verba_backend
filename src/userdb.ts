@@ -38,6 +38,18 @@ userDb.exec(`
     added_at INTEGER NOT NULL,
     correct_count INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS word_senses(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    word TEXT NOT NULL,
+    context_meaning TEXT,
+    context_sentence TEXT,
+    phrase TEXT,
+    example_en TEXT,
+    example_zh TEXT,
+    added_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_word_senses_word ON word_senses(word);
 `);
 
 // ---- 行类型 ----
@@ -61,12 +73,32 @@ interface ErrorRow {
   correct_count: number;
 }
 
+interface SenseRow {
+  id: number;
+  word: string;
+  context_meaning: string | null;
+  context_sentence: string | null;
+  phrase: string | null;
+  example_en: string | null;
+  example_zh: string | null;
+  added_at: number;
+}
+
+export interface SenseInput {
+  contextMeaning?: string | null;
+  contextSentence?: string | null;
+  phrase?: string | null;
+  exampleEn?: string | null;
+  exampleZh?: string | null;
+}
+
 export interface WordInput {
   word: string;
   phonetic?: string | null;
   translation?: string | null;
   pos?: string | null;
   distractors?: string[];
+  sense?: SenseInput | null;
 }
 
 // ---- 工具 ----
@@ -101,6 +133,19 @@ function errorJson(r: ErrorRow) {
     word: r.word,
     addedAt: r.added_at,
     correctCount: r.correct_count,
+  };
+}
+
+function senseJson(r: SenseRow) {
+  return {
+    id: r.id,
+    word: r.word,
+    contextMeaning: r.context_meaning,
+    contextSentence: r.context_sentence,
+    phrase: r.phrase,
+    exampleEn: r.example_en,
+    exampleZh: r.example_zh,
+    addedAt: r.added_at,
   };
 }
 
@@ -139,6 +184,15 @@ const stmtDateCounts = userDb.prepare(
 const stmtRemoveWord = userDb.prepare(
   `UPDATE user_words SET removed_at = ? WHERE id = ? AND removed_at IS NULL`,
 );
+const stmtInsertSense = userDb.prepare(`
+  INSERT INTO word_senses
+    (word, context_meaning, context_sentence, phrase, example_en, example_zh, added_at)
+  VALUES
+    (@word, @context_meaning, @context_sentence, @phrase, @example_en, @example_zh, @added_at)
+`);
+const stmtSensesByWord = userDb.prepare(
+  `SELECT * FROM word_senses WHERE word = ? ORDER BY added_at ASC, id ASC`,
+);
 
 /** 加入词本;词已存在则重新归桶到今天(同 ConflictAlgorithm.replace 语义)。 */
 export function addWord(input: WordInput) {
@@ -153,7 +207,23 @@ export function addWord(input: WordInput) {
     added_at: Date.now(),
     added_date: todayYmd(),
   });
+  if (input.sense) {
+    stmtInsertSense.run({
+      word: input.word,
+      context_meaning: input.sense.contextMeaning ?? null,
+      context_sentence: input.sense.contextSentence ?? null,
+      phrase: input.sense.phrase ?? null,
+      example_en: input.sense.exampleEn ?? null,
+      example_zh: input.sense.exampleZh ?? null,
+      added_at: Date.now(),
+    });
+  }
   return wordJson(stmtGetWord.get(input.word) as UserWordRow);
+}
+
+/** 某词的全部语境释义,按加入时间升序。 */
+export function sensesByWord(word: string) {
+  return (stmtSensesByWord.all(word) as SenseRow[]).map(senseJson);
 }
 
 export function wordsByDate(ymd: string) {
