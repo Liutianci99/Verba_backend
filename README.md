@@ -25,6 +25,7 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 |------|------|------|
 | GET | `/health` | 健康检查(免鉴权) |
 | GET | `/dict/:word` | 查词,返回 ECDICT 行 |
+| POST | `/explain` | body `{word, sentence}`,返回泛意/语境意/词组/例句(ECDICT + DeepSeek 语境消歧,供划词插件) |
 | POST | `/distractors` | body `{word, meaning}`,返回 3 个易混淆中文释义 |
 | GET | `/audio/:word?type=2` | 美音音频流(type=1 英音、2 美音) |
 
@@ -35,7 +36,8 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 | GET | `/words?date=YYYY-MM-DD` | 某日词本 |
 | GET | `/words/counts` | 各日期词数(日历视图) |
 | GET | `/words/find?word=` | 按词查词本条目(错题桶抽检) |
-| POST | `/words` | body `{word, phonetic?, translation?, pos?, distractors?}`,加入词本 |
+| GET | `/words/:word/senses` | 某词全部语境释义(一词多义,划词插件写入) |
+| POST | `/words` | body `{word, phonetic?, translation?, pos?, distractors?, sense?}`,加入词本;可带 `sense` 写语境释义 |
 | DELETE | `/words/:id` | 软删除一个词 |
 | GET | `/errors` | 错题桶列表 |
 | GET | `/errors/count` | 错题桶词数 |
@@ -53,6 +55,7 @@ Verba 背词工具的服务端。代理 ECDICT 词库查询、DeepSeek 干扰项
 - [x] 首次部署上线(`121.5.23.149:8080`)
 - [x] 三接口联调验证(`/dict` `/distractors` `/audio` 全部 200)
 - [x] 用户数据接口:词本 / 错题桶 / 抽检会话,持久化卷
+- [x] 划词插件接口:`/explain` + `word_senses` 一词多义 + CORS
 - [ ] 前端切换为后端唯一数据源
 
 ## 本地运行
