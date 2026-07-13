@@ -59,13 +59,19 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 10m
-          envs: GHCR_TOKEN,GHCR_USER
+          envs: GHCR_TOKEN,GHCR_USER,DS_KEY
           script: |
             set -e
-            export HTTP_PROXY=http://127.0.0.1:7890
-            export HTTPS_PROXY=http://127.0.0.1:7890
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd /root/verba-backend
+            # 用 CI 里的 DS_KEY 注入 DEEPSEEK_API_KEY,其余 .env(含 API_KEY)保留
+            touch .env && chmod 600 .env
+            if grep -q '^DEEPSEEK_API_KEY=' .env; then
+              sed -i "s|^DEEPSEEK_API_KEY=.*|DEEPSEEK_API_KEY=${DS_KEY}|" .env
+            else
+              echo "DEEPSEEK_API_KEY=${DS_KEY}" >> .env
+            fi
+            grep -q '^DEEPSEEK_MODEL=' .env || echo "DEEPSEEK_MODEL=deepseek-chat" >> .env
             docker compose pull
             docker compose up -d
             docker logout ghcr.io
@@ -73,3 +79,4 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
+          DS_KEY: ${{ secrets.DS_KEY }}
