@@ -5,6 +5,8 @@ import {
   findWord,
   dateCounts,
   removeWord,
+  sensesByWord,
+  type SenseInput,
 } from "../userdb.js";
 
 interface WordBody {
@@ -13,6 +15,7 @@ interface WordBody {
   translation?: string;
   pos?: string;
   distractors?: string[];
+  sense?: SenseInput | null;
 }
 
 export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
@@ -47,6 +50,12 @@ export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // 某词的全部语境释义
+  app.get<{ Params: { word: string } }>("/words/:word/senses", async (req) => {
+    const word = req.params.word.trim().toLowerCase();
+    return { senses: sensesByWord(word) };
+  });
+
   // 加入词本(词已存在则重新归桶到今天)
   app.post<{ Body: WordBody }>("/words", async (req, reply) => {
     const word = req.body.word?.trim().toLowerCase();
@@ -60,6 +69,7 @@ export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
       translation: req.body.translation,
       pos: req.body.pos,
       distractors: req.body.distractors,
+      sense: req.body.sense ?? null,
     });
   });
 

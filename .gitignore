@@ -5,3 +5,4 @@ dist/
 *.log
 data/*.db
 data/*.zip
+.tmp-test/
