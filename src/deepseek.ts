@@ -47,3 +47,79 @@ export async function generateDistractors(
     .filter(Boolean)
     .slice(0, 3);
 }
+
+export interface EcdictHint {
+  translation: string | null;
+  definition: string | null;
+  pos: string | null;
+}
+
+export interface ExplainResult {
+  generalMeaning: string;
+  contextMeaning: string;
+  pos: string;
+  phrase: string;
+  example: { en: string; zh: string };
+}
+
+export async function explainInContext(
+  word: string,
+  sentence: string,
+  hint: EcdictHint | null,
+): Promise<ExplainResult> {
+  const candidates = hint?.translation
+    ? `\n词典候选义项（供参考,勿照抄全部）:\n${hint.translation}`
+    : "";
+  const prompt = `英文单词 "${word}" 出现在句子:"${sentence}" 中。${candidates}
+
+请只输出一个 JSON 对象,字段如下:
+- generalMeaning: 该词最广泛常用的中文意思(泛意),简短
+- contextMeaning: 该词在上面这个句子里的中文意思(语境意),简短
+- pos: 语境意对应的词性缩写,如 n. / v. / adj.
+- phrase: 用"语境意"造的一个地道英文词组/搭配
+- example: 用"语境意"造的一个英文例句及其中文翻译,形如 {"en": "...", "zh": "..."}
+
+不要输出 JSON 以外的任何文字。`;
+
+  const res = await fetch(DEEPSEEK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.deepseekApiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.deepseekModel,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 400,
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`DeepSeek API error: ${res.status} ${body.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as DeepSeekResponse;
+  const text = data.choices?.[0]?.message?.content ?? "";
+  let parsed: Partial<ExplainResult>;
+  try {
+    parsed = JSON.parse(text) as Partial<ExplainResult>;
+  } catch {
+    throw new Error(`DeepSeek returned non-JSON: ${text.slice(0, 120)}`);
+  }
+  if (!parsed.generalMeaning || !parsed.contextMeaning) {
+    throw new Error("DeepSeek JSON missing required fields");
+  }
+  return {
+    generalMeaning: parsed.generalMeaning,
+    contextMeaning: parsed.contextMeaning,
+    pos: parsed.pos ?? "",
+    phrase: parsed.phrase ?? "",
+    example: {
+      en: parsed.example?.en ?? "",
+      zh: parsed.example?.zh ?? "",
+    },
+  };
+}
