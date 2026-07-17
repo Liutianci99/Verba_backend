@@ -29,3 +29,14 @@ export const queryWord = db.prepare<[string], WordRow>(`
   WHERE word = ? COLLATE NOCASE
   LIMIT 1
 `);
+
+/** 前缀模糊查询:按词频(frq 小=常用)优先、短词优先。参数:LIKE 模式、上限。 */
+export const searchWords = db.prepare<[string, number], WordRow>(`
+  SELECT word, phonetic, definition, translation, pos, collins, oxford, tag, bnc, frq
+  FROM stardict
+  WHERE word LIKE ? ESCAPE '\\'
+  ORDER BY
+    CASE WHEN frq > 0 THEN frq ELSE 1000000 END ASC,
+    length(word) ASC
+  LIMIT ?
+`);
