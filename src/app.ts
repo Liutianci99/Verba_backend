@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import { requireAuth } from "./middleware/auth.js";
 import { registerDictRoute } from "./routes/dict.js";
 import { registerExplainRoute } from "./routes/explain.js";
+import { registerTranslateRoute } from "./routes/translate.js";
 import { registerDistractorsRoute } from "./routes/distractors.js";
 import { registerAudioRoute } from "./routes/audio.js";
 import { registerWordsRoutes } from "./routes/words.js";
@@ -27,6 +28,7 @@ export function buildApp(): FastifyInstance {
     instance.addHook("preHandler", requireAuth);
     await registerDictRoute(instance);
     await registerExplainRoute(instance);
+    await registerTranslateRoute(instance);
     await registerDistractorsRoute(instance);
     await registerAudioRoute(instance);
     await registerWordsRoutes(instance);

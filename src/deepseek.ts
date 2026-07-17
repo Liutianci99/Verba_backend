@@ -123,3 +123,34 @@ export async function explainInContext(
     },
   };
 }
+
+/** 整段翻译:词组/句子英译中,返回纯中文译文。 */
+export async function translateText(text: string): Promise<string> {
+  const prompt = `把下面的英文翻译成通顺、地道的中文。只输出译文,不要任何解释、不要引号、不要保留原文:
+
+${text}`;
+
+  const res = await fetch(DEEPSEEK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.deepseekApiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.deepseekModel,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+      max_tokens: 800,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`DeepSeek API error: ${res.status} ${body.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as DeepSeekResponse;
+  const out = (data.choices?.[0]?.message?.content ?? "").trim();
+  if (!out) throw new Error("DeepSeek returned empty translation");
+  return out;
+}
