@@ -21,10 +21,12 @@ export interface WordRow {
   tag: string | null;
   bnc: number | null;
   frq: number | null;
+  /** 屈折关系,形如 "0:run/1:i";词形还原据此进行,见 lemma.ts */
+  exchange: string | null;
 }
 
 export const queryWord = db.prepare<[string], WordRow>(`
-  SELECT word, phonetic, definition, translation, pos, collins, oxford, tag, bnc, frq
+  SELECT word, phonetic, definition, translation, pos, collins, oxford, tag, bnc, frq, exchange
   FROM stardict
   WHERE word = ? COLLATE NOCASE
   LIMIT 1
@@ -32,7 +34,7 @@ export const queryWord = db.prepare<[string], WordRow>(`
 
 /** 前缀模糊查询:按词频(frq 小=常用)优先、短词优先。参数:LIKE 模式、上限。 */
 export const searchWords = db.prepare<[string, number], WordRow>(`
-  SELECT word, phonetic, definition, translation, pos, collins, oxford, tag, bnc, frq
+  SELECT word, phonetic, definition, translation, pos, collins, oxford, tag, bnc, frq, exchange
   FROM stardict
   WHERE word LIKE ? ESCAPE '\\'
   ORDER BY

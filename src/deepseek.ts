@@ -60,6 +60,8 @@ export interface ExplainResult {
   pos: string;
   phrase: string;
   example: { en: string; zh: string };
+  /** 词根兜底:仅在 ECDICT 还原不出时参考,见 lemma.ts */
+  lemma: string;
 }
 
 export async function explainInContext(
@@ -73,9 +75,10 @@ export async function explainInContext(
   const prompt = `英文单词 "${word}" 出现在句子:"${sentence}" 中。${candidates}
 
 请只输出一个 JSON 对象,字段如下:
+- lemma: 该词的原形/词根(若本身已是原形就原样返回)。例如 running→run、criteria→criterion
 - generalMeaning: 该词最广泛常用的中文意思(泛意),简短
 - contextMeaning: 该词在上面这个句子里的中文意思(语境意),简短
-- pos: 语境意对应的词性缩写,如 n. / v. / adj.
+- pos: 该词**在这个句子里**充当的词性,只输出缩写,取值限于 n. / v. / adj. / adv. / prep. / conj. / pron. / num. / art. / int.
 - phrase: 用"语境意"造的一个地道英文词组/搭配
 - example: 用"语境意"造的一个英文例句及其中文翻译,形如 {"en": "...", "zh": "..."}
 
@@ -121,6 +124,7 @@ export async function explainInContext(
       en: parsed.example?.en ?? "",
       zh: parsed.example?.zh ?? "",
     },
+    lemma: parsed.lemma?.trim() ?? "",
   };
 }
 
