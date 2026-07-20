@@ -83,6 +83,26 @@ function stripSuffix(word: string): Array<{ candidate: string; label: string }> 
 }
 
 /**
+ * surface 是否确实是 lemma 的某个屈折形 —— 依据 lemma 自己的 exchange。
+ *
+ * 用于交叉验证 LLM 提出的词根:像 "leaves" 这种既可以是 leaf 的复数、
+ * 又可以是 leave 的三单的歧义形,ECDICT 只给一个答案且不看句子,
+ * 而 LLM 看得到句子。于是让 LLM 提议、词典证实,双方都同意才改判。
+ */
+export function isInflectionOf(surface: string, lemmaWord: string): string | null {
+  const s = surface.trim().toLowerCase();
+  const row = queryWord.get(lemmaWord);
+  if (!row) return null;
+  for (const [code, val] of parseExchange(row.exchange)) {
+    if (code === "0" || code === "1") continue; // 这两个描述的是 lemma 自身
+    if (val.toLowerCase().split(/[,;]/).some((v) => v.trim() === s)) {
+      return FORM_LABEL[code] ?? "变形";
+    }
+  }
+  return null;
+}
+
+/**
  * 解析一个词的词根。已经是原形则返回 null。
  *
  * @param word 小写后的查询词

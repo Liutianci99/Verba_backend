@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseExchange, resolveLemma } from "../src/lemma.js";
+import { parseExchange, resolveLemma, isInflectionOf } from "../src/lemma.js";
 import { queryWord } from "../src/db.js";
 
 const row = (w: string) => queryWord.get(w) ?? null;
@@ -53,5 +53,23 @@ describe("resolveLemma", () => {
   it("空输入安全", () => {
     expect(resolveLemma("", null)).toBeNull();
     expect(resolveLemma("   ", null)).toBeNull();
+  });
+});
+
+describe("isInflectionOf(交叉验证)", () => {
+  it("词典证实该形式属于给定词根", () => {
+    // fixture: run 的 exchange 含 i:running / p:ran / 3:runs
+    expect(isInflectionOf("running", "run")).toBe("现在分词");
+    expect(isInflectionOf("ran", "run")).toBe("过去式");
+    expect(isInflectionOf("criteria", "criterion")).toBe("复数");
+  });
+
+  it("不属于则返回 null,LLM 的臆断不会被采纳", () => {
+    expect(isInflectionOf("running", "criterion")).toBeNull();
+    expect(isInflectionOf("banana", "run")).toBeNull();
+  });
+
+  it("词根不在词典中时返回 null", () => {
+    expect(isInflectionOf("zzzs", "zzz")).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { queryWord } from "../db.js";
-import { resolveLemma } from "../lemma.js";
+import { resolveLemma, isInflectionOf } from "../lemma.js";
 import { explainInContext } from "../deepseek.js";
 
 export async function registerExplainRoute(app: FastifyInstance): Promise<void> {
@@ -35,18 +35,30 @@ export async function registerExplainRoute(app: FastifyInstance): Promise<void> 
           row ? { translation: row.translation, definition: row.definition, pos: row.pos } : null,
         );
 
-        // ECDICT 还原不出时(生僻变形),采纳 LLM 给的词根兜底。
-        // LLM 字段一律当作可能缺失来处理
+        // LLM 字段一律当作可能缺失/畸形来处理
         const llmLemma = (r.lemma ?? "").trim().toLowerCase();
-        const useLlmLemma =
-          !lem && llmLemma && llmLemma !== queried && /^[a-z][a-z'-]*$/.test(llmLemma);
-        const finalWord = useLlmLemma ? llmLemma : word;
-        const finalRow = useLlmLemma ? (queryWord.get(llmLemma) ?? row) : row;
+        const llmUsable =
+          !!llmLemma && llmLemma !== queried && /^[a-z][a-z'-]*$/.test(llmLemma);
+
+        let finalWord = word;
+        let finalRow = row;
+        let inflection = lem?.inflection ?? null;
+
+        if (llmUsable && llmLemma !== word) {
+          // 词典证实 queried 确实是 llmLemma 的屈折形才改判。
+          // 覆盖 ECDICT 结论的场景:leaves 在 "the leaves fell" 里应还原成 leaf 而非 leave
+          const verified = isInflectionOf(queried, llmLemma);
+          if (verified && (!lem || queryWord.get(llmLemma))) {
+            finalWord = llmLemma;
+            finalRow = queryWord.get(llmLemma) ?? row;
+            inflection = verified;
+          }
+        }
 
         return {
           word: finalWord,
           queried,
-          inflection: lem?.inflection ?? (useLlmLemma ? "变形" : null),
+          inflection,
           phonetic: finalRow?.phonetic ?? null,
           pos: r.pos,
           generalMeaning: r.generalMeaning,
