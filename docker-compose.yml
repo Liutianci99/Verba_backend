@@ -10,8 +10,15 @@ services:
     environment:
       # 用户数据库落在持久化卷上,与镜像内只读 ECDICT 分离
       - USER_DB_PATH=/data/verba_user.db
+      # 发音缓存与用户库同卷,持久且由插件/App 共用
+      - AUDIO_CACHE_DIR=/data/audio
+      - TTS_URL=http://verba-tts:8000
       # 对齐用户时区,使词本归桶日期正确
       - TZ=Asia/Shanghai
+    # 只约束启动顺序,不等健康检查:TTS 挂了只应让发音 502,
+    # 不能连带拖垮查词/词本/抽检等核心接口
+    depends_on:
+      - verba-tts
     volumes:
       - verba-userdata:/data
     healthcheck:
@@ -20,6 +27,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 40s
+
+  # Kokoro TTS,仅内网可达(不映射端口),由 verba-backend 调用
+  verba-tts:
+    image: ghcr.io/liutianci99/verba-tts:latest
+    container_name: verba-tts
+    restart: unless-stopped
+    environment:
+      - KOKORO_VOICE=af_heart
+      - ORT_INTRA_OP_THREADS=2
+    # 模型常驻约 400MB,给足余量并防止吃满整机
+    mem_limit: 1500m
 
 volumes:
   verba-userdata:

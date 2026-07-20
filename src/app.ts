@@ -14,6 +14,9 @@ export function buildApp(): FastifyInstance {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? "info" },
     trustProxy: true,
+    // 默认 100 会让 /audio/:word 读整句时直接 404;放宽到略高于 TTS 的 600 字上限,
+    // 使长度校验落在路由内(返回 413)而不是变成匹配失败
+    maxParamLength: 700,
   });
 
   app.register(cors, {
