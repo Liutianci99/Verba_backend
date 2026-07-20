@@ -68,11 +68,21 @@ export async function explainInContext(
   word: string,
   sentence: string,
   hint: EcdictHint | null,
+  surface?: string,
 ): Promise<ExplainResult> {
   const candidates = hint?.translation
     ? `\n词典候选义项（供参考,勿照抄全部）:\n${hint.translation}`
     : "";
-  const prompt = `英文单词 "${word}" 出现在句子:"${sentence}" 中。${candidates}
+  // 选中的是屈折形时,把「原始形式」与「词典的还原结果」都摆出来。
+  // 词典不看句子,像 leaves 这种歧义形会判错,必须让模型有机会依据句子纠正。
+  const ambiguity =
+    surface && surface.toLowerCase() !== word.toLowerCase()
+      ? `\n注意:用户在句中选中的原始形式是 "${surface}",词典将其还原为 "${word}",` +
+        `但词典不看上下文,可能判错(例如 "the leaves fell" 里 leaves 是 leaf 的复数,` +
+        `而非 leave 的第三人称单数)。请依据句子判断真正的原形填入 lemma,` +
+        `并让其余字段都针对你判定的这个原形。`
+      : "";
+  const prompt = `英文单词 "${surface ?? word}" 出现在句子:"${sentence}" 中。${candidates}${ambiguity}
 
 请只输出一个 JSON 对象,字段如下:
 - lemma: 该词的原形/词根(若本身已是原形就原样返回)。例如 running→run、criteria→criterion

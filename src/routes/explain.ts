@@ -33,6 +33,7 @@ export async function registerExplainRoute(app: FastifyInstance): Promise<void> 
           word,
           sentence,
           row ? { translation: row.translation, definition: row.definition, pos: row.pos } : null,
+          queried, // 让模型看得到原始形式,才可能纠正词典的歧义误判
         );
 
         // LLM 字段一律当作可能缺失/畸形来处理
@@ -45,13 +46,20 @@ export async function registerExplainRoute(app: FastifyInstance): Promise<void> 
         let inflection = lem?.inflection ?? null;
 
         if (llmUsable && llmLemma !== word) {
-          // 词典证实 queried 确实是 llmLemma 的屈折形才改判。
-          // 覆盖 ECDICT 结论的场景:leaves 在 "the leaves fell" 里应还原成 leaf 而非 leave
+          // 采纳 LLM 词根的两种情形,都要求它是词典里的真词,避免臆造:
+          // 1) 词典已有结论 → 必须由词典自己证实 queried 是 llmLemma 的屈折形
+          //    (leaves 在 "the leaves fell" 里应是 leaf 的复数,而非 leave 的三单)
+          // 2) 词典毫无结论 → 只要 llmLemma 确实收录就采纳
           const verified = isInflectionOf(queried, llmLemma);
-          if (verified && (!lem || queryWord.get(llmLemma))) {
+          const llmRow = queryWord.get(llmLemma) ?? null;
+          if (verified) {
             finalWord = llmLemma;
-            finalRow = queryWord.get(llmLemma) ?? row;
+            finalRow = llmRow ?? row;
             inflection = verified;
+          } else if (!lem && llmRow) {
+            finalWord = llmLemma;
+            finalRow = llmRow;
+            inflection = "变形";
           }
         }
 

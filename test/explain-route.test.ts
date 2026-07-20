@@ -49,8 +49,14 @@ describe("POST /explain", () => {
     expect(body.queried).toBe("running"); // 用户实际选中的形式
     expect(body.inflection).toBe("现在分词");
     expect(body.phonetic).toBe("rʌn"); // 取到的是词根音标
-    // 送给 LLM 的是词根,但句子保持原样以便判断语境
-    expect(explainMock).toHaveBeenCalledWith("run", "he is running fast", expect.anything());
+    // 词根、原句、以及用户选中的原始形式都要给到 LLM ——
+    // 少了最后一项,模型就无从纠正词典对歧义形的误判
+    expect(explainMock).toHaveBeenCalledWith(
+      "run",
+      "he is running fast",
+      expect.anything(),
+      "running",
+    );
     await app.close();
   });
 
@@ -85,6 +91,45 @@ describe("POST /explain", () => {
       payload: { sentence: "x" },
     });
     expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("歧义屈折形:LLM 依句子改判,且须经词典交叉验证", async () => {
+    // fixture 里 run 的 exchange 含 i:running,故 running→run 可被证实
+    explainMock.mockResolvedValueOnce({
+      generalMeaning: "跑",
+      contextMeaning: "跑",
+      pos: "v.",
+      phrase: "run fast",
+      example: { en: "He runs.", zh: "他跑。" },
+      lemma: "run",
+    } as never);
+    const { buildApp } = await import("../src/app.js");
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST", url: "/explain", headers: AUTH,
+      payload: { word: "running", sentence: "he is running" },
+    });
+    expect(res.json().word).toBe("run");
+    await app.close();
+  });
+
+  it("LLM 臆造的词根不被采纳,回落到词典结论", async () => {
+    explainMock.mockResolvedValueOnce({
+      generalMeaning: "跑",
+      contextMeaning: "跑",
+      pos: "v.",
+      phrase: "x",
+      example: { en: "x", zh: "x" },
+      lemma: "zzzbogus", // 词典里没有,且无法证实 running 是它的屈折形
+    } as never);
+    const { buildApp } = await import("../src/app.js");
+    const app = buildApp();
+    const res = await app.inject({
+      method: "POST", url: "/explain", headers: AUTH,
+      payload: { word: "running", sentence: "he is running" },
+    });
+    expect(res.json().word).toBe("run"); // 仍是 ECDICT 的结论
     await app.close();
   });
 });
