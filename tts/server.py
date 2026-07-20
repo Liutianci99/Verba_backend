@@ -3,16 +3,14 @@
 只在内网 docker 网络暴露,由 verba-backend 调用,不直接对外。
 模型在启动时加载一次(冷加载约 1.5s),之后常驻内存。
 """
-import io
 import logging
 import os
-import subprocess
 import threading
 import time
 from contextlib import asynccontextmanager
 
+import lameenc
 import numpy as np
-import soundfile as sf
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 from kokoro_onnx import Kokoro
@@ -23,6 +21,7 @@ VOICES_PATH = os.environ.get("KOKORO_VOICES", "/models/voices-v1.0.bin")
 DEFAULT_VOICE = os.environ.get("KOKORO_VOICE", "af_heart")
 MAX_CHARS = int(os.environ.get("TTS_MAX_CHARS", "600"))
 INTRA_THREADS = int(os.environ.get("ORT_INTRA_OP_THREADS", "2"))
+MP3_BITRATE = int(os.environ.get("TTS_MP3_BITRATE", "64"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("verba-tts")
@@ -87,19 +86,29 @@ def voices() -> dict:
     return {"voices": sorted(_kokoro.get_voices())}
 
 
-def _wav_to_mp3(samples: np.ndarray, rate: int) -> bytes:
-    """ffmpeg 从 stdin 读 WAV、stdout 出 MP3,不落盘。"""
-    buf = io.BytesIO()
-    sf.write(buf, samples, rate, format="WAV", subtype="PCM_16")
-    proc = subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-f", "wav", "-i", "pipe:0",
-         "-codec:a", "libmp3lame", "-qscale:a", "4", "-f", "mp3", "pipe:1"],
-        input=buf.getvalue(),
-        capture_output=True,
-    )
-    if proc.returncode != 0 or not proc.stdout:
-        raise HTTPException(500, f"mp3 encode failed: {proc.stderr.decode()[:200]}")
-    return proc.stdout
+def _to_mp3(samples: np.ndarray, rate: int) -> bytes:
+    """
+    float32 采样直接编成 MP3。
+
+    原先靠 ffmpeg 子进程转码,但为这一件事拖进 458MB 的 apt 依赖树,
+    且每次请求都要 fork。lameenc 是同一个 LAME 编码器的 Python 绑定,
+    约 100KB,进程内完成。
+
+    24kHz 单声道语音 64kbps 已经透明(与原先 ffmpeg -qscale:a 4 实测码率一致)。
+    """
+    pcm = np.clip(samples, -1.0, 1.0)
+    pcm = (pcm * 32767.0).astype(np.int16)
+
+    enc = lameenc.Encoder()
+    enc.set_bit_rate(MP3_BITRATE)
+    enc.set_in_sample_rate(rate)
+    enc.set_channels(1)
+    enc.set_quality(2)  # 2 = 高质量(慢),语音短句无所谓
+    mp3 = enc.encode(pcm.tobytes())
+    mp3 += enc.flush()
+    if not mp3:
+        raise HTTPException(500, "mp3 encode produced no output")
+    return bytes(mp3)
 
 
 @app.post("/synth")
@@ -121,7 +130,7 @@ def synth(req: SynthRequest) -> Response:
             log.warning("synth failed for %r: %s", text[:60], e)
             raise HTTPException(400, f"synth failed: {e}") from e
     synth_s = time.time() - t0
-    mp3 = _wav_to_mp3(samples, rate)
+    mp3 = _to_mp3(samples, rate)
     log.info("synth %r voice=%s %.2fs -> %dB", text[:40], voice, synth_s, len(mp3))
 
     return Response(

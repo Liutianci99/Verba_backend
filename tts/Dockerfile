@@ -14,11 +14,13 @@ RUN curl -fsSL -o kokoro-v1.0.onnx "${KOKORO_RELEASE}/kokoro-v1.0.onnx" \
     && ls -lh
 
 FROM python:3.12-slim AS runtime
+# 不装 ffmpeg:它整棵依赖树约 458MB,而我们只用它把 PCM 编成 MP3。
+# lameenc 是同一个 LAME 编码器的 Python 绑定,约 100KB,进程内完成。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg tini ca-certificates \
+      tini ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir \
-      numpy soundfile onnxruntime kokoro-onnx fastapi "uvicorn[standard]"
+      numpy onnxruntime kokoro-onnx lameenc fastapi "uvicorn[standard]"
 
 COPY --from=models /models /models
 WORKDIR /app
