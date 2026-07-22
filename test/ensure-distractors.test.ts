@@ -81,6 +81,61 @@ describe("ensureDistractors", () => {
     expect(findWord("shortword")!.distractors).toEqual([]);
   });
 
+  it("清掉字符串内重复的词元(DS 偶发把同一个词吐三遍)", async () => {
+    const { addWord, findWord } = await import("../src/userdb.js");
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    // 线上 parity 的真实产物
+    genMock.mockImplementation(async () => [
+      "部分 部分 部分",
+      "对等 对等 对等",
+      "奇偶性 奇偶性 奇偶性",
+    ]);
+    addWord({ word: "parityword", translation: "n. 同等" });
+
+    await ensureDistractors([findWord("parityword")!]);
+
+    expect(findWord("parityword")!.distractors).toEqual([
+      "部分",
+      "对等",
+      "奇偶性",
+    ]);
+  });
+
+  it("保留正常的多词释义,不误伤", async () => {
+    const { addWord, findWord } = await import("../src/userdb.js");
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    // 线上 toggle 的真实产物,词元各不相同,应原样保留
+    genMock.mockImplementation(async () => [
+      "n. 把手 扣环 旋钮",
+      "vt. 缠绕 系紧",
+      "n. 开关 触发器 拨片",
+    ]);
+    addWord({ word: "toggleword", translation: "n. 套索钉" });
+
+    await ensureDistractors([findWord("toggleword")!]);
+
+    expect(findWord("toggleword")!.distractors).toEqual([
+      "n. 把手 扣环 旋钮",
+      "vt. 缠绕 系紧",
+      "n. 开关 触发器 拨片",
+    ]);
+  });
+
+  it("干扰项彼此重复或与正确答案相同时,清洗后不足 3 个则整体丢弃", async () => {
+    const { addWord, findWord } = await import("../src/userdb.js");
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    genMock.mockImplementation(async () => ["甲", "甲", "n. 同义词"]);
+    addWord({ word: "dupword", translation: "n. 同义词" });
+
+    await ensureDistractors([findWord("dupword")!]);
+
+    // 去重后剩「甲」,又剔掉与正确答案相同的一项 → 不足 3,不落库
+    expect(findWord("dupword")!.distractors).toEqual([]);
+  });
+
   it("没有译文的词跳过,不浪费 DS 调用", async () => {
     const { addWord, findWord } = await import("../src/userdb.js");
     const { ensureDistractors } = await import("../src/ensure-distractors.js");
