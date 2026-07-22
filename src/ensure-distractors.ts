@@ -47,6 +47,26 @@ function clean(raw: string[], meaning: string): string[] {
 export async function ensureDistractors<T extends WordLike>(
   words: T[],
 ): Promise<T[]> {
+  // 先就地清洗已存的。纯字符串操作不花 DS 调用,清洗上线前落的脏数据
+  // (线上 parity 的「部分 部分 部分」)在这里自愈。清完不足 3 个的
+  // 视同缺失,交给下面重新生成。
+  for (const w of words) {
+    if (w.distractors.length === 0) continue;
+    const cleaned = clean(w.distractors, (w.translation ?? "").trim());
+    if (
+      cleaned.length === w.distractors.length &&
+      cleaned.every((v, i) => v === w.distractors[i])
+    ) {
+      continue; // 本来就干净,不必写库
+    }
+    if (cleaned.length >= 3) {
+      setDistractors(w.word, cleaned);
+      w.distractors = cleaned;
+    } else {
+      w.distractors = [];
+    }
+  }
+
   const pending = words.filter(
     (w) => w.distractors.length === 0 && (w.translation ?? "").trim() !== "",
   );

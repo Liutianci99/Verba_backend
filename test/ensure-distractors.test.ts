@@ -136,6 +136,63 @@ describe("ensureDistractors", () => {
     expect(findWord("dupword")!.distractors).toEqual([]);
   });
 
+  it("已存的脏干扰项在读取时就地清洗,不消耗 DS 调用", async () => {
+    const { addWord, findWord } = await import("../src/userdb.js");
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    // 模拟清洗上线前落库的脏数据
+    addWord({
+      word: "dirtyword",
+      translation: "n. 同等",
+      distractors: ["部分 部分 部分", "对等 对等 对等", "奇偶性 奇偶性 奇偶性"],
+    });
+
+    await ensureDistractors([findWord("dirtyword")!]);
+
+    expect(findWord("dirtyword")!.distractors).toEqual([
+      "部分",
+      "对等",
+      "奇偶性",
+    ]);
+    expect(genMock).not.toHaveBeenCalled();
+  });
+
+  it("已存的干扰项清洗后不足 3 个则重新生成", async () => {
+    const { addWord, findWord } = await import("../src/userdb.js");
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    addWord({
+      word: "thinword",
+      translation: "n. 稀疏",
+      distractors: ["甲", "甲", "甲"], // 去重后只剩 1 个
+    });
+
+    await ensureDistractors([findWord("thinword")!]);
+
+    expect(genMock).toHaveBeenCalled();
+    expect(findWord("thinword")!.distractors).toEqual([
+      "干扰项甲",
+      "干扰项乙",
+      "干扰项丙",
+    ]);
+  });
+
+  it("已经干净的干扰项不重复写库", async () => {
+    const { addWord, findWord } = await import("../src/userdb.js");
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    addWord({
+      word: "cleanword",
+      translation: "n. 干净",
+      distractors: ["甲", "乙", "丙"],
+    });
+
+    await ensureDistractors([findWord("cleanword")!]);
+
+    expect(findWord("cleanword")!.distractors).toEqual(["甲", "乙", "丙"]);
+    expect(genMock).not.toHaveBeenCalled();
+  });
+
   it("没有译文的词跳过,不浪费 DS 调用", async () => {
     const { addWord, findWord } = await import("../src/userdb.js");
     const { ensureDistractors } = await import("../src/ensure-distractors.js");
