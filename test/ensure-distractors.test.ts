@@ -40,10 +40,12 @@ describe("ensureDistractors", () => {
     ]);
   });
 
-  it("已有干扰项的词不再调用 DS", async () => {
+  it("客户端随入库带来的干扰项视为过期,由服务端按当前策略重生成", async () => {
     const { addWord, findWord } = await import("../src/userdb.js");
     const { ensureDistractors } = await import("../src/ensure-distractors.js");
 
+    // App 加词时自带 distractors 走 addWord,服务端无从得知它由哪版 prompt
+    // 生成,一律按过期处理,以自己的当前策略为准
     addWord({
       word: "appword",
       translation: "n. 应用词",
@@ -51,7 +53,12 @@ describe("ensureDistractors", () => {
     });
     await ensureDistractors([findWord("appword")!]);
 
-    expect(genMock).not.toHaveBeenCalled();
+    expect(genMock).toHaveBeenCalled();
+    expect(findWord("appword")!.distractors).toEqual([
+      "干扰项甲",
+      "干扰项乙",
+      "干扰项丙",
+    ]);
   });
 
   it("DS 失败时保持为空且不抛错", async () => {
@@ -137,15 +144,19 @@ describe("ensureDistractors", () => {
   });
 
   it("已存的脏干扰项在读取时就地清洗,不消耗 DS 调用", async () => {
-    const { addWord, findWord } = await import("../src/userdb.js");
+    const { addWord, findWord, setDistractors } = await import(
+      "../src/userdb.js"
+    );
     const { ensureDistractors } = await import("../src/ensure-distractors.js");
 
-    // 模拟清洗上线前落库的脏数据
-    addWord({
-      word: "dirtyword",
-      translation: "n. 同等",
-      distractors: ["部分 部分 部分", "对等 对等 对等", "奇偶性 奇偶性 奇偶性"],
-    });
+    // 当前策略生成、但清洗规则收紧前落库的脏数据
+    addWord({ word: "dirtyword", translation: "n. 同等" });
+    setDistractors("dirtyword", [
+      "部分 部分 部分",
+      "对等 对等 对等",
+      "奇偶性 奇偶性 奇偶性",
+    ]);
+    genMock.mockClear();
 
     await ensureDistractors([findWord("dirtyword")!]);
 
@@ -178,19 +189,56 @@ describe("ensureDistractors", () => {
   });
 
   it("已经干净的干扰项不重复写库", async () => {
-    const { addWord, findWord } = await import("../src/userdb.js");
+    const { addWord, findWord, setDistractors } = await import(
+      "../src/userdb.js"
+    );
     const { ensureDistractors } = await import("../src/ensure-distractors.js");
 
-    addWord({
-      word: "cleanword",
-      translation: "n. 干净",
-      distractors: ["甲", "乙", "丙"],
-    });
+    addWord({ word: "cleanword", translation: "n. 干净" });
+    setDistractors("cleanword", ["甲", "乙", "丙"]);
+    genMock.mockClear();
 
     await ensureDistractors([findWord("cleanword")!]);
 
     expect(findWord("cleanword")!.distractors).toEqual(["甲", "乙", "丙"]);
     expect(genMock).not.toHaveBeenCalled();
+  });
+
+  it("旧策略生成的干扰项会被重新生成,哪怕它本身是干净的", async () => {
+    const { addWord, findWord } = await import("../src/userdb.js");
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    // addWord 传入的 distractors 走老路径,版本号停留在 0
+    addWord({
+      word: "staleword",
+      translation: "n. 标准尺寸",
+      distractors: ["计量", "衡量", "测算"], // 旧策略产物:全是该词自身义项
+    });
+
+    await ensureDistractors([findWord("staleword")!]);
+
+    expect(genMock).toHaveBeenCalled();
+    expect(findWord("staleword")!.distractors).toEqual([
+      "干扰项甲",
+      "干扰项乙",
+      "干扰项丙",
+    ]);
+  });
+
+  it("当前策略生成的干扰项不重复调用 DS", async () => {
+    const { addWord, findWord, setDistractors } = await import(
+      "../src/userdb.js"
+    );
+    const { ensureDistractors } = await import("../src/ensure-distractors.js");
+
+    addWord({ word: "freshword", translation: "n. 新词" });
+    setDistractors("freshword", ["甲", "乙", "丙"]); // 走 setDistractors,版本号写当前值
+    genMock.mockClear();
+
+    await ensureDistractors([findWord("freshword")!]);
+
+    expect(genMock).not.toHaveBeenCalled();
+    expect(findWord("freshword")!.distractors).toEqual(["甲", "乙", "丙"]);
   });
 
   it("没有译文的词跳过,不浪费 DS 调用", async () => {
