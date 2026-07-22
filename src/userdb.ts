@@ -71,6 +71,21 @@ function addColumnIfMissing(table: string, column: string, decl: string): void {
 addColumnIfMissing("error_bucket", "last_correct_date", "TEXT");
 addColumnIfMissing("user_words", "distractors_ver", "INTEGER NOT NULL DEFAULT 0");
 
+/**
+ * 清空 LLM 生成的干扰项。
+ *
+ * 干扰项改由客户端从词本其它词的译文里取(见 quiz_page),服务端不再生成。
+ * 存量数据是 LLM 产物,一半与该词自身词义撞车,必须清掉,否则客户端会优先
+ * 用它而不走新逻辑。
+ *
+ * 无条件执行:已经没有任何写入路径会再填充这个字段,所以第一次之后都是
+ * 零行更新;真有脏数据混进来也能自愈。
+ */
+userDb.exec(
+  `UPDATE user_words SET distractors_json = NULL
+   WHERE distractors_json IS NOT NULL`,
+);
+
 // ---- 行类型 ----
 
 interface UserWordRow {
@@ -202,12 +217,6 @@ const stmtAllWords = userDb.prepare(
    WHERE removed_at IS NULL
    ORDER BY added_at ASC`,
 );
-const stmtSetDistractors = userDb.prepare(
-  `UPDATE user_words SET distractors_json = ?, distractors_ver = ? WHERE word = ?`,
-);
-const stmtGetDistractorsVer = userDb.prepare(
-  `SELECT distractors_ver AS v FROM user_words WHERE word = ?`,
-);
 const stmtDateCounts = userDb.prepare(
   `SELECT added_date AS d, COUNT(*) AS c
    FROM user_words WHERE removed_at IS NULL
@@ -267,32 +276,6 @@ export function allWords() {
   return (stmtAllWords.all() as UserWordRow[]).map(wordJson);
 }
 
-/**
- * 干扰项生成策略的版本号。
- *
- * 改了 prompt 或清洗规则就 +1,全库存量数据会在下次读取时自动重新生成
- * (见 ensureDistractors)。比一次性清空好在幂等:不会每次部署重刷一遍。
- *
- * 1 → 初版,让 DS 直接产出"易混淆的错误释义"。事后发现它拿的是同一个词的
- *     其它义项(gauge 配 计量/衡量/测算),题目因此有多个正确答案。
- * 2 → 改为取【别的单词】的释义:2 个拼写形近 + 1 个同领域不同概念。
- *     上线后发现两个漏洞:DS 常把正确答案原样吐回来,剔除后不足 3 个导致
- *     整组丢弃(volatility/derivative/excessive 全空);以及撞上该词在
- *     ECDICT 里的其它义项时抓不到(parity 拿到"奇偶性")。
- * 3 → 改要 5 个带类别标签的候选留出余量,并用 ECDICT 全义项做否决校验。
- */
-export const DISTRACTORS_VER = 3;
-
-/** 回填干扰项(读时自愈,见 ensureDistractors)。 */
-export function setDistractors(word: string, distractors: string[]): void {
-  stmtSetDistractors.run(JSON.stringify(distractors), DISTRACTORS_VER, word);
-}
-
-/** 该词的干扰项是否由当前策略生成。存量数据为 0,一律落后。 */
-export function distractorsUpToDate(word: string): boolean {
-  const row = stmtGetDistractorsVer.get(word) as { v: number } | undefined;
-  return (row?.v ?? 0) >= DISTRACTORS_VER;
-}
 
 /** 按词查未删除的词本条目,供错题桶抽检取词详情。 */
 export function findWord(word: string) {

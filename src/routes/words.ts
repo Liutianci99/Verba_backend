@@ -9,7 +9,6 @@ import {
   sensesByWord,
   type SenseInput,
 } from "../userdb.js";
-import { ensureDistractors } from "../ensure-distractors.js";
 
 interface WordBody {
   word?: string;
@@ -21,12 +20,7 @@ interface WordBody {
 }
 
 export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
-  /**
-   * 词本:某日(date=YYYY-MM-DD)或全量(all=1)。
-   *
-   * 返回前补齐缺失的干扰项 —— 抽检是这个接口唯一的消费方,在这里自愈能同时
-   * 覆盖插件与 App 两条入库路径留下的空干扰项。
-   */
+  // 词本:某日(date=YYYY-MM-DD)或全量(all=1)
   app.get<{ Querystring: { date?: string; all?: string } }>(
     "/words",
     async (req, reply) => {
@@ -36,8 +30,7 @@ export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
         reply.code(400);
         return { error: "date or all=1 required" };
       }
-      const words = wantAll ? allWords() : wordsByDate(date!);
-      return { words: await ensureDistractors(words) };
+      return { words: wantAll ? allWords() : wordsByDate(date!) };
     },
   );
 
@@ -68,7 +61,12 @@ export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
     return { senses: sensesByWord(word) };
   });
 
-  // 加入词本(词已存在则重新归桶到今天)
+  /**
+   * 加入词本(词已存在则重新归桶到今天)。
+   *
+   * 刻意忽略 body 里的 distractors:干扰项已改由客户端从词本其它词的译文
+   * 里取,服务端不再存。老版本 App 仍会带这个字段过来,收下即丢。
+   */
   app.post<{ Body: WordBody }>("/words", async (req, reply) => {
     const word = req.body.word?.trim().toLowerCase();
     if (!word) {
@@ -80,7 +78,6 @@ export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
       phonetic: req.body.phonetic,
       translation: req.body.translation,
       pos: req.body.pos,
-      distractors: req.body.distractors,
       sense: req.body.sense ?? null,
     });
   });
