@@ -1,5 +1,5 @@
 import { generateDistractors } from "./deepseek.js";
-import { setDistractors } from "./userdb.js";
+import { setDistractors, distractorsUpToDate } from "./userdb.js";
 
 /** 同时在飞的 DS 请求数上限。一次全量测试可能几十个词,不能一起打出去。 */
 const CONCURRENCY = 5;
@@ -47,11 +47,18 @@ function clean(raw: string[], meaning: string): string[] {
 export async function ensureDistractors<T extends WordLike>(
   words: T[],
 ): Promise<T[]> {
-  // 先就地清洗已存的。纯字符串操作不花 DS 调用,清洗上线前落的脏数据
-  // (线上 parity 的「部分 部分 部分」)在这里自愈。清完不足 3 个的
-  // 视同缺失,交给下面重新生成。
   for (const w of words) {
     if (w.distractors.length === 0) continue;
+
+    // 旧策略的产物一律作废。它们是"同一个词的其它义项",清洗规则挑不出
+    // 毛病(格式干净、彼此不重复),只能靠版本号识别。
+    if (!distractorsUpToDate(w.word)) {
+      w.distractors = [];
+      continue;
+    }
+
+    // 就地清洗当前策略的产物。纯字符串操作不花 DS 调用,清洗规则上线前
+    // 落的脏数据在这里自愈。清完不足 3 个的视同缺失,交给下面重新生成。
     const cleaned = clean(w.distractors, (w.translation ?? "").trim());
     if (
       cleaned.length === w.distractors.length &&

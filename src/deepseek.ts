@@ -7,18 +7,46 @@ interface DeepSeekResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
+/**
+ * 解析干扰项产物,取每行 `英文单词|中文释义` 里的释义。
+ *
+ * 抽成纯函数是为了能直接测解析,不必 mock fetch。
+ * 兼容半角/全角竖线,以及模型偶尔漏掉竖线只给释义的情况。
+ */
+export function parseDistractorLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((l) => l.replace(/^[\d.、。\s\-*]+/, "").trim())
+    .filter(Boolean)
+    .map((l) => {
+      const parts = l.split(/[|｜]/);
+      // 有竖线取后半段(释义);没有则整行当释义
+      return (parts.length > 1 ? parts.slice(1).join(" ") : parts[0]).trim();
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
 export async function generateDistractors(
   word: string,
   meaning: string,
 ): Promise<string[]> {
   const prompt = `给定英文单词 "${word}",其正确中文释义是:"${meaning}"。
-请生成 3 个易混淆但错误的中文释义,用于英语词汇选择题的干扰项。要求:
-1. 不能与正确释义有重叠语义
-2. 词性尽量与正确释义一致
-3. 字数与正确释义接近
-4. 优先选用中级英语学习者容易混淆的词义
+请为英语词汇选择题生成 3 个干扰项。
 
-只输出 3 行,每行一个干扰项,无序号、无解释、无引号、无标点结尾。`;
+最重要的要求:每个干扰项必须是【另一个真实存在的英文单词】的释义,
+绝对不能是 "${word}" 自身任何义项的改写、近义表达或其它词性下的意思。
+(反例:若 "${word}" 是 gauge,则"计量""衡量""测算"都不可用 ——
+它们都是 gauge 本身的意思,会导致题目出现多个正确答案。)
+
+三个干扰项的来源:
+- 2 个:与 "${word}" 拼写形近的单词(通常只差一两个字母)
+- 1 个:与 "${word}" 同属一个专业领域、但概念完全不同的单词
+
+其余要求:词性尽量与正确释义一致,字数接近。
+
+输出 3 行,每行格式为 英文单词|中文释义
+无序号、无解释、无引号。`;
 
   const res = await fetch(DEEPSEEK_URL, {
     method: "POST",
@@ -40,12 +68,7 @@ export async function generateDistractors(
   }
 
   const data = (await res.json()) as DeepSeekResponse;
-  const text = data.choices?.[0]?.message?.content ?? "";
-  return text
-    .split("\n")
-    .map((l) => l.replace(/^[\d.、。\s\-*]+/, "").trim())
-    .filter(Boolean)
-    .slice(0, 3);
+  return parseDistractorLines(data.choices?.[0]?.message?.content ?? "");
 }
 
 export interface EcdictHint {
