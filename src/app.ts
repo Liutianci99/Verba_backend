@@ -4,7 +4,6 @@ import { requireAuth } from "./middleware/auth.js";
 import { registerDictRoute } from "./routes/dict.js";
 import { registerExplainRoute } from "./routes/explain.js";
 import { registerTranslateRoute } from "./routes/translate.js";
-import { registerDistractorsRoute } from "./routes/distractors.js";
 import { registerAudioRoute } from "./routes/audio.js";
 import { registerWordsRoutes } from "./routes/words.js";
 import { registerErrorsRoutes } from "./routes/errors.js";
@@ -32,7 +31,6 @@ export function buildApp(): FastifyInstance {
     await registerDictRoute(instance);
     await registerExplainRoute(instance);
     await registerTranslateRoute(instance);
-    await registerDistractorsRoute(instance);
     await registerAudioRoute(instance);
     await registerWordsRoutes(instance);
     await registerErrorsRoutes(instance);
