@@ -2,12 +2,14 @@ import type { FastifyInstance } from "fastify";
 import {
   addWord,
   wordsByDate,
+  allWords,
   findWord,
   dateCounts,
   removeWord,
   sensesByWord,
   type SenseInput,
 } from "../userdb.js";
+import { ensureDistractors } from "../ensure-distractors.js";
 
 interface WordBody {
   word?: string;
@@ -19,15 +21,25 @@ interface WordBody {
 }
 
 export async function registerWordsRoutes(app: FastifyInstance): Promise<void> {
-  // 某日词本
-  app.get<{ Querystring: { date?: string } }>("/words", async (req, reply) => {
-    const date = req.query.date?.trim();
-    if (!date) {
-      reply.code(400);
-      return { error: "date required" };
-    }
-    return { words: wordsByDate(date) };
-  });
+  /**
+   * 词本:某日(date=YYYY-MM-DD)或全量(all=1)。
+   *
+   * 返回前补齐缺失的干扰项 —— 抽检是这个接口唯一的消费方,在这里自愈能同时
+   * 覆盖插件与 App 两条入库路径留下的空干扰项。
+   */
+  app.get<{ Querystring: { date?: string; all?: string } }>(
+    "/words",
+    async (req, reply) => {
+      const wantAll = req.query.all === "1";
+      const date = req.query.date?.trim();
+      if (!wantAll && !date) {
+        reply.code(400);
+        return { error: "date or all=1 required" };
+      }
+      const words = wantAll ? allWords() : wordsByDate(date!);
+      return { words: await ensureDistractors(words) };
+    },
+  );
 
   // 各日期词数,供日历视图
   app.get("/words/counts", async () => ({ counts: dateCounts() }));
