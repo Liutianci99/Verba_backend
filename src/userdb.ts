@@ -36,7 +36,8 @@ userDb.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     word TEXT NOT NULL UNIQUE,
     added_at INTEGER NOT NULL,
-    correct_count INTEGER NOT NULL DEFAULT 0
+    correct_count INTEGER NOT NULL DEFAULT 0,
+    last_correct_date TEXT
   );
 
   CREATE TABLE IF NOT EXISTS word_senses(
@@ -51,6 +52,23 @@ userDb.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_word_senses_word ON word_senses(word);
 `);
+
+/**
+ * 补列迁移。
+ *
+ * 上面的 CREATE TABLE IF NOT EXISTS 对已存在的表是空操作,新增字段不会补进
+ * 老库。生产库(143 的 verba-userdata 卷)是持续使用的,只能靠 ALTER 补。
+ */
+function addColumnIfMissing(table: string, column: string, decl: string): void {
+  const cols = userDb
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    userDb.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
+}
+
+addColumnIfMissing("error_bucket", "last_correct_date", "TEXT");
 
 // ---- 行类型 ----
 
@@ -71,6 +89,7 @@ interface ErrorRow {
   word: string;
   added_at: number;
   correct_count: number;
+  last_correct_date: string | null;
 }
 
 interface SenseRow {
@@ -133,6 +152,7 @@ function errorJson(r: ErrorRow) {
     word: r.word,
     addedAt: r.added_at,
     correctCount: r.correct_count,
+    lastCorrectDate: r.last_correct_date,
   };
 }
 
@@ -175,6 +195,14 @@ const stmtWordsByDate = userDb.prepare(
   `SELECT * FROM user_words
    WHERE added_date = ? AND removed_at IS NULL
    ORDER BY added_at ASC`,
+);
+const stmtAllWords = userDb.prepare(
+  `SELECT * FROM user_words
+   WHERE removed_at IS NULL
+   ORDER BY added_at ASC`,
+);
+const stmtSetDistractors = userDb.prepare(
+  `UPDATE user_words SET distractors_json = ? WHERE word = ?`,
 );
 const stmtDateCounts = userDb.prepare(
   `SELECT added_date AS d, COUNT(*) AS c
@@ -230,6 +258,16 @@ export function wordsByDate(ymd: string) {
   return (stmtWordsByDate.all(ymd) as UserWordRow[]).map(wordJson);
 }
 
+/** 全部未删除的词,供「全量测试」。 */
+export function allWords() {
+  return (stmtAllWords.all() as UserWordRow[]).map(wordJson);
+}
+
+/** 回填干扰项(读时自愈,见 ensureDistractors)。 */
+export function setDistractors(word: string, distractors: string[]): void {
+  stmtSetDistractors.run(JSON.stringify(distractors), word);
+}
+
 /** 按词查未删除的词本条目,供错题桶抽检取词详情。 */
 export function findWord(word: string) {
   const row = stmtGetActiveWord.get(word) as UserWordRow | undefined;
@@ -243,52 +281,90 @@ export function dateCounts(): Record<string, number> {
   return out;
 }
 
+/** 从词本移除;一并出错题桶,避免留下永远考不到的孤儿。 */
 export function removeWord(id: number): boolean {
-  return stmtRemoveWord.run(Date.now(), id).changes > 0;
+  const removed = stmtRemoveWord.run(Date.now(), id).changes > 0;
+  if (removed) stmtDeleteErrorByWordId.run(id);
+  return removed;
 }
 
 // ---- 错题桶 ----
 
+/** 需要在 N 个不同日期各答对一次才移出错题桶。 */
 const ERROR_GRADUATE = 3;
 
+/**
+ * 标记错题。
+ *
+ * 已在桶内的词会被清零重来:刚答错的词不该保留既往进度,否则一次答对就毕业。
+ * added_at 保持首次入桶时间不变,用于呈现"这个词纠缠了多久"。
+ */
 const stmtMarkError = userDb.prepare(
-  `INSERT OR IGNORE INTO error_bucket (word, added_at, correct_count)
-   VALUES (?, ?, 0)`,
+  `INSERT INTO error_bucket (word, added_at, correct_count, last_correct_date)
+   VALUES (?, ?, 0, NULL)
+   ON CONFLICT(word) DO UPDATE SET
+     correct_count = 0,
+     last_correct_date = NULL`,
 );
 const stmtGetError = userDb.prepare(
   `SELECT * FROM error_bucket WHERE word = ?`,
 );
-const stmtUpdateErrorCount = userDb.prepare(
-  `UPDATE error_bucket SET correct_count = ? WHERE word = ?`,
+const stmtUpdateErrorProgress = userDb.prepare(
+  `UPDATE error_bucket SET correct_count = ?, last_correct_date = ? WHERE word = ?`,
 );
 const stmtDeleteError = userDb.prepare(
   `DELETE FROM error_bucket WHERE word = ?`,
 );
-const stmtErrorList = userDb.prepare(
-  `SELECT * FROM error_bucket ORDER BY added_at DESC`,
-);
-const stmtErrorCount = userDb.prepare(
-  `SELECT COUNT(*) AS c FROM error_bucket`,
+const stmtDeleteErrorByWordId = userDb.prepare(
+  `DELETE FROM error_bucket
+   WHERE word = (SELECT word FROM user_words WHERE id = ?)`,
 );
 
-/** 标记错题;已在桶内则不重置进度。 */
+/**
+ * 列表/计数只认词本里仍然有效的词。
+ *
+ * 抽检取详情走 findWord(removed_at IS NULL),取不到的词会被客户端静默跳过。
+ * 若这里不同口径过滤,就会出现"角标显示 N 个,实际只考得出 M 道"的对不上,
+ * 且存量脏数据无法自愈。
+ */
+const ERROR_ACTIVE_FROM = `
+  FROM error_bucket e
+  JOIN user_words u ON u.word = e.word AND u.removed_at IS NULL
+`;
+const stmtErrorList = userDb.prepare(
+  `SELECT e.* ${ERROR_ACTIVE_FROM} ORDER BY e.added_at DESC`,
+);
+const stmtErrorCount = userDb.prepare(
+  `SELECT COUNT(*) AS c ${ERROR_ACTIVE_FROM}`,
+);
+
+/** 标记错题;已在桶内则清零进度重新计起。 */
 export function markError(word: string): void {
   stmtMarkError.run(word, Date.now());
 }
 
-/** 错题答对累计 +1,达 3 次自动毕业(移出错题桶)。 */
+/**
+ * 错题答对累计 +1,在 ERROR_GRADUATE 个不同日期各答对一次后毕业。
+ *
+ * 同一天内重复答对不计入 —— 间隔重复的价值在于跨天的遗忘曲线,连刷三轮
+ * 只能证明短期记忆。counted 告诉调用方这次是否真的推进了进度。
+ */
 export function bumpErrorCorrect(
   word: string,
-): { removed: boolean; correctCount: number } {
+  today: string = todayYmd(),
+): { removed: boolean; correctCount: number; counted: boolean } {
   const row = stmtGetError.get(word) as ErrorRow | undefined;
-  if (!row) return { removed: false, correctCount: 0 };
+  if (!row) return { removed: false, correctCount: 0, counted: false };
+  if (row.last_correct_date === today) {
+    return { removed: false, correctCount: row.correct_count, counted: false };
+  }
   const next = row.correct_count + 1;
   if (next >= ERROR_GRADUATE) {
     stmtDeleteError.run(word);
-    return { removed: true, correctCount: next };
+    return { removed: true, correctCount: next, counted: true };
   }
-  stmtUpdateErrorCount.run(next, word);
-  return { removed: false, correctCount: next };
+  stmtUpdateErrorProgress.run(next, today, word);
+  return { removed: false, correctCount: next, counted: true };
 }
 
 export function errorWords() {
