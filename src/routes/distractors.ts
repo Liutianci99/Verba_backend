@@ -21,7 +21,8 @@ export async function registerDistractorsRoute(
     async (req, reply) => {
       const { word, meaning } = req.body;
       try {
-        const distractors = await generateDistractors(word, meaning);
+        const candidates = await generateDistractors(word, meaning);
+        const distractors = candidates.map((c) => c.meaning);
         if (distractors.length < 3) {
           reply.code(502);
           return { error: "llm returned fewer than 3 distractors", got: distractors };
