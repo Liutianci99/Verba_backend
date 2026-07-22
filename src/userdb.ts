@@ -276,8 +276,12 @@ export function allWords() {
  * 1 → 初版,让 DS 直接产出"易混淆的错误释义"。事后发现它拿的是同一个词的
  *     其它义项(gauge 配 计量/衡量/测算),题目因此有多个正确答案。
  * 2 → 改为取【别的单词】的释义:2 个拼写形近 + 1 个同领域不同概念。
+ *     上线后发现两个漏洞:DS 常把正确答案原样吐回来,剔除后不足 3 个导致
+ *     整组丢弃(volatility/derivative/excessive 全空);以及撞上该词在
+ *     ECDICT 里的其它义项时抓不到(parity 拿到"奇偶性")。
+ * 3 → 改要 5 个带类别标签的候选留出余量,并用 ECDICT 全义项做否决校验。
  */
-export const DISTRACTORS_VER = 2;
+export const DISTRACTORS_VER = 3;
 
 /** 回填干扰项(读时自愈,见 ensureDistractors)。 */
 export function setDistractors(word: string, distractors: string[]): void {

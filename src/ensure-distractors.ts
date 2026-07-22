@@ -1,4 +1,9 @@
-import { generateDistractors } from "./deepseek.js";
+import {
+  generateDistractors,
+  type DistractorCandidate,
+  type DistractorKind,
+} from "./deepseek.js";
+import { queryWord } from "./db.js";
 import { setDistractors, distractorsUpToDate } from "./userdb.js";
 
 /** 同时在飞的 DS 请求数上限。一次全量测试可能几十个词,不能一起打出去。 */
@@ -10,24 +15,95 @@ interface WordLike {
   distractors: string[];
 }
 
+/** 把一段中文释义拆成可比对的语义片段,并剥掉词性标记。 */
+function segments(text: string): string[] {
+  return text
+    .replace(/\b(n|v|vt|vi|adj|adv|prep|conj|pron|art|num|int)\.\s*/gi, "")
+    .split(/[;；,，、\n/|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /**
- * 清洗 DS 产物。
+ * 该词"不可用作干扰项"的语义集合。
  *
- * 三类脏数据:
- * - 字符串内重复词元。DeepSeek 偶发把同一个词吐三遍(线上 parity 拿到
- *   「部分 部分 部分」)。按词元去重,「n. 把手 扣环 旋钮」这种词元各异的
- *   正常释义不受影响。
- * - 干扰项彼此重复,选项里会出现两个一样的。
- * - 干扰项与正确答案相同,题目会出现两个正确选项。比较口径对齐客户端
- *   (quiz_page 取 translation 的第一个分号段作为正确答案)。
+ * 光比对存的 translation 不够:插件存的是泛意,往往只有一两个词。
+ * parity 存的是「同等,平价」,而 DS 给的干扰项「奇偶性,对等」同样是
+ * parity 的真实词义,只是不在这个短泛意里,字符串比对抓不到。
+ * ECDICT 收录了该词的全部义项,拿它做否决才堵得住。
  */
-function clean(raw: string[], meaning: string): string[] {
-  const answer = meaning.split(";")[0].trim();
+function forbiddenMeanings(word: string, translation: string): Set<string> {
+  const out = new Set(segments(translation));
+  const row = queryWord.get(word);
+  if (row?.translation) for (const s of segments(row.translation)) out.add(s);
+  return out;
+}
+
+/**
+ * 清洗并按类别配额挑选干扰项。
+ *
+ * 剔除四类:
+ * - 字符串内重复词元。DS 偶发把同一个词吐三遍(线上 parity 拿到
+ *   「部分 部分 部分」)。按词元去重,「n. 把手 扣环 旋钮」这种词元
+ *   各异的正常释义不受影响。
+ * - 与该词任一真实义项撞车的(见 forbiddenMeanings)。DS 屡屡把正确
+ *   答案原样吐回来,volatility 就拿到过「波动性」。
+ * - 彼此重复的,否则选项里出现两个一样的。
+ * - 空的。
+ *
+ * 挑选按 2 形近 + 1 同领域;某一类不够时用另一类补满,凑不齐 3 个则
+ * 返回空,由调用方整组丢弃、退回跨词兜底。
+ */
+function pick(
+  raw: DistractorCandidate[],
+  word: string,
+  translation: string,
+): string[] {
+  const forbidden = forbiddenMeanings(word, translation);
+  const seen = new Set<string>();
+  const byKind: Record<DistractorKind, string[]> = { 形近: [], 同领域: [] };
+
+  for (const c of raw) {
+    const tokens = c.meaning.trim().split(/\s+/).filter(Boolean);
+    const text = [...new Set(tokens)].join(" ");
+    if (!text || seen.has(text)) continue;
+    // 整体撞车,或拆开后任一片段撞车
+    if (forbidden.has(text)) continue;
+    if (segments(text).some((s) => forbidden.has(s))) continue;
+    seen.add(text);
+    byKind[c.kind].push(text);
+  }
+
+  const out = byKind["形近"].slice(0, 2);
+  out.push(...byKind["同领域"].slice(0, 1));
+  // 配额不足时互相补位
+  for (const extra of [...byKind["形近"].slice(2), ...byKind["同领域"].slice(1)]) {
+    if (out.length >= 3) break;
+    out.push(extra);
+  }
+  return out.length >= 3 ? out.slice(0, 3) : [];
+}
+
+/**
+ * 复检已落库的干扰项。
+ *
+ * 与 pick 同一套剔除规则,只是输入是纯字符串、没有类别信息,因此不做
+ * 配额挑选,原序保留。用于清洗规则收紧后让存量数据自愈。
+ */
+function revalidate(
+  stored: string[],
+  word: string,
+  translation: string,
+): string[] {
+  const forbidden = forbiddenMeanings(word, translation);
+  const seen = new Set<string>();
   const out: string[] = [];
-  for (const item of raw) {
+  for (const item of stored) {
     const tokens = item.trim().split(/\s+/).filter(Boolean);
     const text = [...new Set(tokens)].join(" ");
-    if (!text || text === answer || out.includes(text)) continue;
+    if (!text || seen.has(text) || forbidden.has(text)) continue;
+    if (segments(text).some((s) => forbidden.has(s))) continue;
+    seen.add(text);
     out.push(text);
   }
   return out;
@@ -57,9 +133,9 @@ export async function ensureDistractors<T extends WordLike>(
       continue;
     }
 
-    // 就地清洗当前策略的产物。纯字符串操作不花 DS 调用,清洗规则上线前
-    // 落的脏数据在这里自愈。清完不足 3 个的视同缺失,交给下面重新生成。
-    const cleaned = clean(w.distractors, (w.translation ?? "").trim());
+    // 就地复检当前策略的产物。纯本地操作不花 DS 调用,清洗规则收紧前
+    // 落的脏数据在这里自愈。剩不足 3 个的视同缺失,交给下面重新生成。
+    const cleaned = revalidate(w.distractors, w.word, (w.translation ?? "").trim());
     if (
       cleaned.length === w.distractors.length &&
       cleaned.every((v, i) => v === w.distractors[i])
@@ -85,7 +161,11 @@ export async function ensureDistractors<T extends WordLike>(
       batch.map(async (w) => {
         try {
           const meaning = w.translation!.trim();
-          const got = clean(await generateDistractors(w.word, meaning), meaning);
+          const got = pick(
+            await generateDistractors(w.word, meaning),
+            w.word,
+            meaning,
+          );
           if (got.length < 3) return;
           setDistractors(w.word, got);
           w.distractors = got;
