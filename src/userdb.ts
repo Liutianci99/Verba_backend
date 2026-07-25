@@ -51,6 +51,18 @@ userDb.exec(`
     added_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_word_senses_word ON word_senses(word);
+
+  CREATE TABLE IF NOT EXISTS ai_dict(
+    word TEXT PRIMARY KEY,
+    is_word INTEGER NOT NULL,
+    suggestion TEXT,
+    phonetic TEXT,
+    translation TEXT,
+    definition TEXT,
+    pos TEXT,
+    model TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
 `);
 
 /**
@@ -406,4 +418,73 @@ export function finishQuiz(
   correct: number,
 ): boolean {
   return stmtFinishQuiz.run(Date.now(), total, correct, id).changes > 0;
+}
+
+// ---- 兜底词条缓存 ----
+
+/**
+ * ECDICT 未收录词的 LLM 词条缓存。见 routes/dict.ts。
+ *
+ * 判假的结果同样入缓存 —— 否则同一个拼写错误每查一次就付一次钱。
+ * 不设过期:词义不变,要重刷手工 DELETE。
+ */
+interface AiDictRow {
+  word: string;
+  is_word: number;
+  suggestion: string | null;
+  phonetic: string | null;
+  translation: string | null;
+  definition: string | null;
+  pos: string | null;
+  model: string;
+  created_at: number;
+}
+
+export interface AiDictEntry {
+  isWord: boolean;
+  suggestion: string | null;
+  phonetic: string | null;
+  translation: string | null;
+  definition: string | null;
+  pos: string | null;
+}
+
+const stmtGetAiDict = userDb.prepare(`SELECT * FROM ai_dict WHERE word = ?`);
+const stmtPutAiDict = userDb.prepare(
+  `INSERT INTO ai_dict
+     (word, is_word, suggestion, phonetic, translation, definition, pos, model, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT(word) DO UPDATE SET
+     is_word = excluded.is_word, suggestion = excluded.suggestion,
+     phonetic = excluded.phonetic, translation = excluded.translation,
+     definition = excluded.definition, pos = excluded.pos,
+     model = excluded.model, created_at = excluded.created_at`,
+);
+
+export function getAiDict(word: string): AiDictEntry | null {
+  const r = stmtGetAiDict.get(word) as AiDictRow | undefined;
+  if (!r) return null;
+  return {
+    isWord: r.is_word === 1,
+    suggestion: r.suggestion,
+    phonetic: r.phonetic,
+    translation: r.translation,
+    definition: r.definition,
+    pos: r.pos,
+  };
+}
+
+/** model 一并存下:换模型后想重刷哪批缓存,得知道它是谁生成的。 */
+export function putAiDict(word: string, e: AiDictEntry, model: string): void {
+  stmtPutAiDict.run(
+    word,
+    e.isWord ? 1 : 0,
+    e.suggestion,
+    e.phonetic,
+    e.translation,
+    e.definition,
+    e.pos,
+    model,
+    Date.now(),
+  );
 }
