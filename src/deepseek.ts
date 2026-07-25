@@ -64,7 +64,10 @@ export async function explainInContext(
       model: config.deepseekModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
-      max_tokens: 400,
+      // v4 是推理模型,思维链计入 completion_tokens。实测最坏情况(选中屈折形、
+      // prompt 带整段歧义说明)flash 用 269、pro 用 361,原来的 400 余量太薄;
+      // 一旦超限就 finish_reason=length,JSON 被截断后这里抛错、路由返 502。
+      max_tokens: 1500,
       response_format: { type: "json_object" },
     }),
   });
@@ -114,7 +117,9 @@ ${text}`;
       model: config.deepseekModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
-      max_tokens: 800,
+      // 同上:思维链占预算。实测接近 schema 上限(447 字符)的输入耗 391,其中
+      // 思维链 331 —— 译文本身很短,余量几乎全被思维链吃掉,故一并抬高。
+      max_tokens: 2500,
     }),
   });
 

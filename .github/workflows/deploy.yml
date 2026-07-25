@@ -99,7 +99,11 @@ jobs:
             else
               echo "DEEPSEEK_API_KEY=${DS_KEY}" >> .env
             fi
-            grep -q '^DEEPSEEK_MODEL=' .env || echo "DEEPSEEK_MODEL=deepseek-chat" >> .env
+            # 不再往 .env 播种模型名:代码里已有默认值(config.ts),而 .env 一旦
+            # 钉死就压过代码 —— 2026-07 DeepSeek 下线 deepseek-chat 时,正是这行
+            # 留下的旧值让 /explain、/translate 持续 502,改代码部署也救不回来。
+            # 这里只清掉已失效的钉子,需要覆盖的话手工写 DEEPSEEK_MODEL= 仍然有效。
+            sed -i '/^DEEPSEEK_MODEL=deepseek-chat$/d' .env
             docker compose pull
             docker compose up -d
             docker logout ghcr.io
