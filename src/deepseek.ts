@@ -116,9 +116,13 @@ export interface AiDefinition {
 /**
  * 生成一个 ECDICT 未收录词的词条。
  *
- * 关键是 isWord:ECDICT 收录 77 万词条,查不到多半是拼错了,而模型对
- * "recieve" 一样能编出一套像样的释义。所以先让它自己判定真假,判假就只取
- * 拼写建议、其余字段一概不要。
+ * 关键是 isWord:模型对随机字符串一样能编出一套像样的释义,所以先让它自己
+ * 判定真假,判假就只取拼写建议、其余字段一概不要。
+ *
+ * 别把「查不到」当成「拼错了」。ECDICT 有 340 万条,其中 73 万是 [网络]
+ * 众包词条,连 recieve、definately 这类错拼都收了。2026-07-25 实测
+ * kubernetes、orthogonality 均命中,skibidi 才真的未收录 —— 所以兜底的主要
+ * 受益对象是新造词与品牌名,拼写建议这条路径极少触发。
  */
 export async function defineWord(word: string): Promise<AiDefinition> {
   const prompt = `英文词 "${word}" 未收录于本地词典。请判断它是否真实存在。
